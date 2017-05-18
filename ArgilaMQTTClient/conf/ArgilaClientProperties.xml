@@ -31,7 +31,7 @@
     <entry key="Processed">2</entry>
     <entry key="ProcessingFinished">3</entry>
     
-    <entry key="Topic">mine</entry>
+    <entry key="Topic">accounts</entry>
     <entry key="AccountsTopic">Broadcast</entry>
     <entry key="ClientID">123</entry>
     <entry key="AckTopic">ack/123</entry>

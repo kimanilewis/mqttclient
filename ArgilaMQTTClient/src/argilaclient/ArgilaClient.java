@@ -22,9 +22,8 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -34,6 +33,7 @@ import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.MqttTopic;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -70,12 +70,13 @@ public final class ArgilaClient implements MqttCallback {
     String accountsTopic;
     String content = "";
 
-    Map<String, String> accountMap = new HashMap<>();
+    List<String> accountMap = new ArrayList<>();
 //    String broker = "tcp://iot.eclipse.org:1883";
     String broker;
     String ackTopic;
     private String accountNumber;
     private String timeStamp;
+    private String lastTimeStamp;
     private String clientID;
     private String MSISDN = null;
     private String accountBalance = null;
@@ -131,20 +132,18 @@ public final class ArgilaClient implements MqttCallback {
 //    }
 
     public void runClient() {
-        while (0 > accountMap.size()) {
+        for (int i = 0; i < accountMap.size(); i++) {
             try {
                 logging.info(logPreString + "| " + Thread.currentThread().getId() + " | "
-                        + "accounts available.... " + accountMap.toString());
-                String timestamp = accountMap.get("timestamp");
-                String account = accountMap.get("accountNumber");
-                logging.info(logPreString);
+                        + "account available.... " + accountMap.toString());
+                String account = accountMap.get(i);
                 logging.info(logPreString
-                        + "account Number: " + account
-                        + "timestamp: " + timestamp);
+                        + "account Number: " + account);
                 if (null != account) {
                     logging.info(logPreString
                             + "accounts is null  " + accountMap.size());
-
+                    subscribe(account, clientID);
+                    accountMap.remove(i);
                 }
                 sleep(2000);
             } catch (InterruptedException ex) {
@@ -240,19 +239,17 @@ public final class ArgilaClient implements MqttCallback {
                         + " | " + "message is " + jsonMessage);
                 logging.info(logPreString
                         + "message json object received: " + JsonRep);
-                if (JsonRep.has("accountNumber")) {
-                    accountNumber = JsonRep.getString("accountNumber");
-                    logging.info(logPreString + "accountNumber is:  " + accountNumber);
-                    if (JsonRep.has("MSISDN")) {
-                        MSISDN = JsonRep.getString("MSISDN");
-
+                if (JsonRep.has("broadcastId")) {
+                    uniqueID = JsonRep.getString("accountNumber");
+                    if (JsonRep.has("accountNumber")) {
+                        accountNumber = JsonRep.getString("accountNumber");
+                        logging.info(logPreString + "accountNumber is:  " + accountNumber);
                     }
-
                     if (JsonRep.has("timestamp")) {
                         timeStamp = JsonRep.getString("timestamp");
                     }
                     logging.info(logPreString
-                            + "accountNumber is:  " + getLastTimeStamp());
+                            + "time stamp is:  " + getLastTimeStamp());
                     if (JsonRep.has("availableTime")) {
                         availableTime = JsonRep.getString("availableTime");
                     }
@@ -263,26 +260,38 @@ public final class ArgilaClient implements MqttCallback {
                     if (JsonRep.has("clientID")) {
                         clientID = JsonRep.getString("clientID");
                     }
-                    if (JsonRep.has("uuid")) {
-                        uniqueID = JsonRep.getString("uuid");
-                    }
 
                     insertNewRequest();
                 } else {
 
-                    Date timestampDate = new SimpleDateFormat(Constants.DATE_FORMAT).parse(timeStamp);
-                    while (getLastTimeStamp().before(timestampDate)) {
-                        if (JsonRep.has("accountNumber")) {
-                            accountNumber = JsonRep.getString("accountNumber");
+//                        JSONObject object = accountArray.optJSONObject(i);
+                    Iterator<String> iterator = JsonRep.keys();
+//                        Iterator<String> iterator = object.keys();
+                    while (iterator.hasNext()) {
+                        accountNumber = iterator.next();
+                        logging.info(logPreString + "| " + Thread.currentThread().getId()
+                                + " | " + "account returned: " + accountNumber);
+                        timeStamp = JsonRep.getString(accountNumber);
+                        logging.info(logPreString + "| " + Thread.currentThread().getId()
+                                + " | " + "time stamp returned: " + timeStamp);
+                        Date timestampDate = new SimpleDateFormat(Constants.DATE_FORMAT).parse(timeStamp);
+                        getLastTimeStamp();
+                        if (lastTimeStamp != null) {
+                            logging.info(logPreString + "| " + Thread.currentThread().getId()
+                                    + "Latest time stored::" + lastTimeStamp);
+                            Date localTimestampDate = new SimpleDateFormat(Constants.DATE_FORMAT).parse(lastTimeStamp);
+                            logging.info(logPreString + "| " + Thread.currentThread().getId()
+                                    + " | " + "account returned: " + accountNumber);
+                            subscribe(accountNumber, clientID);
+//                            if (localTimestampDate.after(timestampDate)) {
+//                                logging.info(logPreString + "| " + Thread.currentThread().getId()
+//                                        + " | " + "account returned: " + accountNumber);
+//                                subscribe(accountNumber, clientID);
+//                            } else {
+//                                break;
+//                            }
+
                         }
-                        if (JsonRep.has("timeStamp")) {
-                            timeStamp = JsonRep.getString("timeStamp");
-                        }
-                        if (JsonRep.has("broadcastId")) {
-                            uniqueID = JsonRep.getString("broadcastId");
-                        }
-                        accountMap.put("accountNumber", accountNumber);
-                        accountMap.put("timestamp", timeStamp);
                     }
 
                 }
@@ -298,7 +307,7 @@ public final class ArgilaClient implements MqttCallback {
             // Create and configure a message
             String payload = "Received: "
                     + "| " + Thread.currentThread() + " | " + time;
-            MqttMessage msg = new MqttMessage(payload.getBytes());
+            MqttMessage msg = new MqttMessage(uniqueID.getBytes());
             msg.setQos(props.getQoS());
 
             // Publish back to core
@@ -312,8 +321,11 @@ public final class ArgilaClient implements MqttCallback {
                     + " | " + "Published to ACK topic:" + token.getMessage());
             // Wait for completion
             token.isComplete();
-        } catch (JSONException | ParseException | MqttException e) {
+        } catch (ParseException | MqttException e) {
             logging.error(logPreString + "Exception cought while connecting to broker"
+                    + e.getMessage());
+        } catch (JSONException e) {
+            logging.error(logPreString + "JSONException cought while receiving message from broker"
                     + e.getMessage());
         }
 
@@ -334,9 +346,11 @@ public final class ArgilaClient implements MqttCallback {
     void insertNewRequest() {
 
         @SuppressWarnings("LocalVariableHidesMemberVariable")
-        String logPreString = this.logPreString + "| " + Thread.currentThread().getId() + " | " + "insertNewRequest() | "
+        String logPreString = this.logPreString + "| "
+                + Thread.currentThread().getId() + " | " + "insertNewRequest() | "
                 + clientID + " | ";
-        logging.info(logPreString + "| " + Thread.currentThread().getId() + "Creating new Core Request..."
+        logging.info(logPreString + "| " + Thread.currentThread().getId()
+                + "Creating new Core Request..."
                 + this.clientID);
         String query = "INSERT INTO coreRequests (accountNumber, accountBalance, "
                 + "availableTime, MSISDN, dateCreated) "
@@ -357,8 +371,8 @@ public final class ArgilaClient implements MqttCallback {
         logging.info(logPreString + "| " + Thread.currentThread().getId()
                 + "Creating new Core Request..." + this.clientID);
         String timestampDate = new SimpleDateFormat(Constants.DATE_FORMAT).format(timeStamp);
-        try (Connection con = mysql.getConnection();
-                PreparedStatement st = con.prepareStatement(query)) {
+        try (Connection conn = mysql.getConnection();
+                PreparedStatement st = conn.prepareStatement(query)) {
             st.setString(1, accountNumber);
             st.setString(2, accountBalance);
             st.setString(3, availableTime);
@@ -388,22 +402,23 @@ public final class ArgilaClient implements MqttCallback {
      * @return
      */
     @SuppressWarnings("LocalVariableHidesMemberVariable")
-    Date getLastTimeStamp() {
+    String getLastTimeStamp() {
         String logPreString = this.logPreString + "getLastTimeStamp() | ";
-        Date LatestTimestamp = null;
+        String LatestTimestamp = null;
         String query = "SELECT timestamp FROM coreRequests "
                 + "ORDER BY timestamp LIMIT 1";
         try (Connection con = mysql.getConnection();
                 PreparedStatement st = con.prepareStatement(query)) {
             ResultSet rs = st.executeQuery();
             if (rs.next()) {
-                LatestTimestamp = rs.getDate("timestamp");
+                LatestTimestamp = rs.getString("timestamp");
+                lastTimeStamp = LatestTimestamp;
             }
         } catch (SQLException ex) {
             logging.error(logPreString + "Error getting latest timestamp : "
                     + ex.getMessage());
         }
-        return LatestTimestamp;
+        return lastTimeStamp;
     }
 
 }
